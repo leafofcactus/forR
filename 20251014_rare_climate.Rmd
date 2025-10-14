@@ -1,0 +1,167 @@
+---
+title: "20251014 work"
+output: html_notebook
+---
+
+오늘의 목표: 기후 희귀성에 따른 희귀 종의 분포 확인하기
+
+일단 가지고 있는 기후변수
+
+|변수명|설명|
+|:-:|:---|
+|BIO1|연평균 기온 (Annual Mean Temperature)|
+|BIO2|월별 일교차 평균 (Mean Diurnal Range, 월별 최대기온 - 최소기온의 평균)|
+|BIO3|등온성 (Isothermality, BIO2/BIO7 ×100)|
+|BIO4|기온 연변동성 (Temperature Seasonality, 표준편차 ×100)|
+|BIO5|가장 더운 달의 최고 기온 (Max Temperature of Warmest Month)|
+|BIO6|가장 추운 달의 최저 기온 (Min Temperature of Coldest Month)|
+|BIO7|연중 기온 범위 (Temperature Annual Range, BIO5 - BIO6)|
+|BIO8|강수량이 가장 많은 3개월의 평균 기온 (Mean Temperature of Wettest Quarter)|
+|BIO9|강수량이 가장 적은 3개월의 평균 기온 (Mean Temperature of Driest Quarter)|
+|BIO10|가장 더운 3개월의 평균 기온 (Mean Temperature of Warmest Quarter)|
+|BIO11|가장 추운 3개월의 평균 기온 (Mean Temperature of Coldest Quarter)|
+|BIO12|연간 강수량 (Annual Precipitation)|
+|BIO13|월별 최다 강수월의 강수량 (Precipitation of Wettest Month)|
+|BIO14|월별 최소 강수월의 강수량 (Precipitation of Driest Month)|
+|BIO15|강수 연변동성 (Precipitation Seasonality, 변동계수)|
+|BIO16|강수량이 가장 많은 3개월간의 강수량 (Precipitation of Wettest Quarter)|
+|BIO17|강수량이 가장 적은 3개월간의 강수량 (Precipitation of Driest Quarter)|
+|BIO18|가장 더운 3개월간의 강수량 (Precipitation of Warmest Quarter)|
+|BIO19|가장 추운 3개월간의 강수량 (Precipitation of Coldest Quarter)|
+|GSP|생장기 누적 강수량|
+|GST|생장기 평균 기온|
+|NPP|총 1차 생산량|
+
+이 중 어떤 것을 사용할까?
+우리나라 육상 기준으로 나눈 후, 관련도가 높은 것을 제거하자.
+
+먼저 우리나라 땅과 기후 자료를 불러오자.
+
+```{r}
+# 우리나라에 해당하는 고도 자료 불러오기
+library(terra)
+
+elev <- rast("./data/terrestrial_250509.tif")
+
+plot(elev)
+
+# 기후 자료 불러오기
+climlist <- list.files("./data/climate_chelsa_1981-2010", pattern = "\\.tif$", full.names = TRUE)
+clim <- rast(climlist)
+
+names(clim) <- c("bio1", "bio10", "bio11", "bio12", "bio13", "bio14", "bio15", "bio16", "bio17", "bio18", "bio19", "bio2", "bio3", "bio4", "bio5", "bio6", "bio7", "bio8", "bio9", "gsp", "gst", "npp")
+
+names(elev) <- c("elevation")
+
+```
+
+좌표계를 m로 계산할 수 있는 5179로 바꾸고, 기후 변수들을 우리나라 모양에 맞게 자르자.
+
+```{r} 
+# 좌표계 지정하기
+library(terra)
+
+target_crs <- "EPSG:5179"
+
+# 우리나라 모양으로 기후 변수 자르기
+cropped_clim <- crop(clim, elev)
+
+masked_clim <- mask(cropped_clim, elev)
+masked_clim_5179 <- project(masked_clim, target_crs, res = 1000)
+
+summary(masked_clim_5179)
+
+plot(masked_clim_5179)
+
+
+```
+그림이 17번째부터 22번째까지는 안 나오기는 하는데 일단 있긴 함..
+
+22개 변수를 다 쓸 수는 없으므로 변수 추리기 - 먼저 다중공선성으로 판단하기
+```{r}
+library(usdm)
+
+clm_df <- as.data.frame(masked_clim_5179, na.rm = TRUE)
+
+# VIF 계산
+vif_result <- vif(clm_df)
+print(vif_result)
+
+vif_filtered <- vifstep(clm_df, th = 10)  # threshold는 필요시 조정
+
+# 선택된 변수 이름 확인
+selected_vars <- vif_filtered@results$Variables
+print(selected_vars)
+
+```
+vif 값 10을 기준으로 했을 때 걸러진 값들: "bio14" "bio15" "bio3"  "bio8"  "gsp"   "gst"   "npp"  
+
+1차로 걸러진 7개 변수의 Pearson correlation 확인하기(0.7 이상은 제거)
+```{r}
+
+# 선택된 변수들만 추출한 SpatRaster 생성
+clm_var_selected <- subset(masked_clim_5179, selected_vars)
+
+# 상관관계 그림 그리기
+clm_df_selected <- as.data.frame(clm_var_selected, na.rm = TRUE)
+
+library(corrplot)
+
+corr_matrix <- cor(clm_df_selected, use = "complete.obs")
+
+corrplot(
+  corr_matrix,
+  method = "color",        # 색상으로 시각화
+  tl.cex = 0.6,            # 변수 이름 크기
+  addCoef.col = "black",   # 상관계수 텍스트 색
+  number.cex = 0.5,        # 상관계수 숫자 크기
+  type = "upper",          # 위쪽 삼각형만 표시 (선택 사항)
+  diag = FALSE             # 대각선 제거 (선택 사항)
+)
+
+corr_abs <- abs(corr_matrix)
+
+#대각선 제거 (자기 자신과의 상관은 1이므로 제외)
+diag(corr_abs) <- 0
+
+library(caret)
+
+high_corr_idx <- findCorrelation(corr_abs, cutoff = 0.7, verbose = TRUE)
+
+#제거 대상 변수 이름
+remove_vars <- colnames(corr_abs)[high_corr_idx]
+
+#제거 후 남길 변수만 선택
+kept_vars <- setdiff(names(clm_df_selected), remove_vars)
+print(kept_vars)
+
+```
+ Pearson 상관계수로 걸러진 값들: "bio14" "bio15" "bio3"  "gsp"   "gst"   "npp"  (bio8만 사라짐)
+ 
+ 총 6개 기후 변수로 다시 상관관계 그래프 확인하기
+ 
+```{r}
+#데이터프레임 필터링
+clm_df_filtered <- clm_df[, kept_vars]
+
+corr_matrix_f <- cor(clm_df_filtered, use = "complete.obs")
+
+corrplot(
+  corr_matrix_f,
+  method = "color",        # 색상으로 시각화
+  tl.cex = 0.6,            # 변수 이름 크기
+  addCoef.col = "black",   # 상관계수 텍스트 색
+  number.cex = 0.5,        # 상관계수 숫자 크기
+  type = "upper",          # 위쪽 삼각형만 표시 (선택 사항)
+  diag = FALSE             # 대각선 제거 (선택 사항)
+)
+
+#SpatRaster에서도 동일하게 필터링
+clm_var_filter <- subset(masked_clim_5179, kept_vars)
+
+plot(clm_var_filter)
+
+
+
+```
+ 
