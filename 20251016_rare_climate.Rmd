@@ -1,0 +1,110 @@
+---
+title: "20251016 work"
+output: html_notebook
+---
+
+오늘의 목표: 추린 기후 변수로 기후공간 생성하기, 희귀 기후 확인하기, 희귀 기후에 사는 식물종 확인하기
+
+우선 추려낸 6개 기후 변수로 기후공간을 생성하자.
+
+~~clm_df_filtered가 추려낸 6개 기후 변수를 포함하는 마스킹된 데이터프레임이므로 그대로 사용한다.~~ 나중에 환경공간에서 출현 좌표를 추출할 때 X, Y 정보가 필요하므로 clm_var_filter에서 데이터프레임을 생성해서 진행한다.
+
+
+```{r}
+#PCA를 이용해 환경공간 생성하기
+
+library(terra)
+library(ggplot2)
+library(dplyr)
+
+# 그 안의 모든 셀 값을 데이터프레임으로 변환
+clm_fil_xy <- as.data.frame(clm_var_filter, xy = TRUE, na.rm = TRUE)
+
+# NA값이 있는 셀 확인
+na_per_variable <- colSums(is.na(clm_fil_xy[, -c(1:2)]))
+print(na_per_variable)
+
+# NA 제거
+clm_fil_xy_nona <- clm_fil_xy %>% filter(complete.cases(.))
+
+# PCA 수행 (환경 변수만 선택)
+clm_only <- clm_fil_xy_nona %>% dplyr::select(-x, -y)
+clm_pca_result <- prcomp(clm_only, scale. = TRUE)
+
+#saveRDS(pca_result, file = "pca_result_all.rds")
+
+#pca_result <- readRDS("pca_result_all.rds")
+
+clm_pca_df <- as.data.frame(clm_pca_result$x)
+
+
+#png(filename = "./그림/pca_all_250929.png", width = 2400, height = 2000, res = 300)
+
+# 6. 시각화: 환경공간에서 각 카테고리 색상 표시
+ggplot(clm_pca_df, aes(x = PC1, y = PC2)) +
+  geom_point(alpha = 0.4, size = 0.6) +
+  labs(title = "대한민국의 기후공간 분포",
+       x = "PC1", y = "PC2") +
+  theme_minimal() 
+
+
+
+```
+
+
+꼬리가 긴 새 모양이 되었다. PCA의 설명력은 어느 정도일까? 60은 넘어야 하는데 말이지
+
+
+```{r}
+#PCA 설명력 확인하기
+
+# PCA 결과에서 고유값 (eigenvalues)은 sdev^2
+eigenvalues <- clm_pca_result$sdev^2
+
+explained_variance <- eigenvalues / sum(eigenvalues)
+cumulative_variance <- cumsum(explained_variance)
+
+pc_var_df <- data.frame(
+  PC = paste0("PC", 1:length(explained_variance)),
+  Explained = explained_variance,
+  Cumulative = cumulative_variance
+)
+
+print(pc_var_df)
+#1축 설명력 47.2, 2축 설명력 19.1
+
+# 1. PCA 결과에서 rotation 행렬 (각 PC의 loading)
+loadings <- clm_pca_result$rotation  # 행: 변수 / 열: PC
+
+# 2. loading^2 하면 각 PC에서의 기여 비율 (분산 비중)
+loading_sq <- loadings^2
+
+# 3. 각 PC에서의 상대적 기여율 (총합이 1이 되도록)
+pc_contrib <- sweep(loading_sq, 2, colSums(loading_sq), FUN = "/")
+
+# 4. 보기 쉽게 정리
+pc_contrib_df <- as.data.frame(pc_contrib)
+pc_contrib_df$Variable <- rownames(pc_contrib_df)
+pc_contrib_df <- pc_contrib_df[, c("Variable", "PC1", "PC2", "PC3")]
+print(pc_contrib_df)
+
+#PCA 예쁘게 그리기####
+library(factoextra)
+
+#png(filename = "./그림/PCA_importance_all_250929.png", width = 1600, height = 1200, res = 300)
+
+fviz_pca_var(
+  clm_pca_result,
+  col.var = "contrib",  # 기여도 기반 색상
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+  repel = TRUE,          # 텍스트 겹침 방지
+  geom = c("arrow", "text"),  # 화살표와 텍스트 모두 출력
+  arrowsize = 1.2,            # 화살표 두께 (기본은 0.5)
+  labelsize = 4,              # 글씨 크기
+  fontface = "bold"           # 글씨 두께 (bold)
+)
+
+dev.off()
+```
+
+npp의 상관성이 낮게 나왔으며, bio14와 15가 PC1축에서 0.2이상의 설명력을 나타내고 bio3과 gsp가 PC2축에서 0.3 이상의 설명력을 보였다.
