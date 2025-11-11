@@ -1,0 +1,42 @@
+---
+title: "20251107_rare_climate"
+output: html_notebook
+---
+
+교수님과 면담 후 일단 빈도 10분위로 나눈 것 중 빈 셀로 분류된 것이 있는지부터 확인해보자고 하셨다.
+
+```{r}
+#기후공간 지리 지도에 투영####
+library(dplyr)
+
+# PCA 점수 + bin 구간 계산
+clm_pca_df_bins <- clm_pca_df %>%
+  mutate(
+    PC1_bin = cut(PC1, breaks = 50),
+    PC2_bin = cut(PC2, breaks = 50)
+  )
+
+# bin 기준으로 다시 병합 (join)
+clm_pca_with_decile <- clm_pca_df_bins %>%
+  left_join(pca_bins %>% dplyr::select(PC1_bin, PC2_bin, count_decile),
+            by = c("PC1_bin", "PC2_bin"))
+
+# 원래 clm_fil_xy_nona와 합치기 (1:1 대응)
+clm_fil_xy_with_decile <- bind_cols(clm_fil_xy_nona, clm_pca_with_decile["count_decile"])
+
+library(terra)
+library(ggplot2)
+
+# 1️⃣ SpatRaster 생성
+r_count_decile <- rast(
+  clm_fil_xy_with_decile[, c("x", "y", "count_decile")],
+  type = "xyz",
+  crs = "EPSG:5179"
+)
+
+table(clm_fil_xy_with_decile$count_decile)
+```
+이거로 봤을 땐 모두가 제대로 희귀 기후 빈도에 맞춰진 것을 확인할 수 있다.
+출현 자료랑 기후공간이 안 맞는게 있는건가?
+
+
