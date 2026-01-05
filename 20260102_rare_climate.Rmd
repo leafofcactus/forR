@@ -1,3 +1,4 @@
+
 ---
 title: "20260102_rare_climate"
 output: html_notebook
@@ -71,3 +72,78 @@ tail(trait_table_final)
 trait 합칠 수 있는 건 합쳐보자..
 합쳤는데 SLA도 합쳐도 60이 안됨.... 그냥 때려치자...
 나중에 종 분산형을 넣든, 생활형을 넣든 하자...
+
+---
+title: "20260102_rare_climate"
+output: html_notebook
+---
+
+2025년 12월 29일에 TRY에서 241분류군의 형질 정보 다운로드 신청
+241분류군 중 167분류군만 형질 정보가 있었다. (그런데 특산식물 35분류군의 정보가 없다. 이걸 어떻게 채워야 할까?)
+그런데 다운 받은 자료도 공통으로 있는 정보만 이용해야 할 것 같아서 일단 추려야 한다.
+
+```{r}
+#install.packages(c("data.table", "dplyr", "tidyr", "jsonlite", "curl"))
+#install.packages("rtry")
+library(rtry)
+
+traitdata <- rtry_import("./data/46171_29122025114036/46171.txt", separator = "\t",
+                         encoding = "Latin-1",
+                         quote = "",
+                         showOverview = TRUE
+)
+
+table(traitdata$TraitName)
+
+```
+
+try 전용 패키지를 써도 깨진다 ㅋㅋㅋㅋ
+
+총 638개 형질이 나온다.
+
+형질 유형화 할 때 꼭 넣어야 할 형질 목록: seed mass, dispersal mode, seed shape, SLA, LWC, above-ground biomass, life history, stem density, clonality, resprouting ability, onset of flowering
+형질 유형화 할 때 넣으면 좋은 형질 목록: dispersal distance, propagule longevity, relative growth rate, fecundity, competitive effect and response, reaction norm, life span, vegetative spread, phenology, palatability
+
+638개 형질에서 저 형질에 해당되는 것은 무엇이 있을까?
+-> 43개로 추림. 종별로 몇개씩 있을까?
+
+
+```{r}
+library(dplyr)
+
+# 1. 내가 원하는 Trait 이름 리스트 추출
+target_traits <- traitlist$Trait.name
+
+# 2. 데이터 필터링 및 테이블 생성
+# traitdata에서 TraitName이 target_traits에 포함된 것만 골라냅니다.
+trait_summary <- traitdata %>%
+  filter(TraitName %in% target_traits) %>%
+  # 종(AccSpeciesName)과 특성(TraitName)별로 그룹화하여 개수를 셉니다.
+  group_by(AccSpeciesName, TraitName) %>%
+  summarise(count = n(), .groups = "drop")
+
+# 3. 보기 편하게 Wide-format(가로 형태) 테이블로 변환
+# 종이 행(Row)으로, Trait 이름이 열(Column)로 오게 만듭니다.
+trait_table_wide <- trait_summary %>%
+  tidyr::pivot_wider(names_from = TraitName, values_from = count, values_fill = 0)
+
+# 결과 확인
+print(trait_table_wide)
+
+# 1. 숫자 열(형질들)에 대해 값이 0보다 큰 행의 개수만 카운트
+total_row <- trait_table_wide %>%
+  summarise(across(where(is.numeric), ~ sum(. > 0))) %>%
+  mutate(AccSpeciesName = "Total_Species_Count") # 첫 번째 열 이름을 구분하기 쉽게 변경
+
+# 2. 원래 테이블 아래에 합계 행 붙이기
+trait_table_final <- bind_rows(trait_table_wide, total_row)
+
+# 확인
+tail(trait_table_final)
+```
+
+43개의 trait에 대해 136분류군을 확인한 결과 식물 생장형만 60개를 넘음..
+trait 합칠 수 있는 건 합쳐보자..
+합쳤는데 SLA도 합쳐도 60이 안됨.... 그냥 때려치자...
+나중에 종 분산형을 넣든, 생활형을 넣든 하자...
+
