@@ -1,0 +1,13 @@
+# R session files
+.Rhistory
+.RData
+.Ruserdata
+
+# RStudio files
+.Rproj.user
+
+# Temporary files
+.RDataTmp*
+*.nb.html
+
+data/
