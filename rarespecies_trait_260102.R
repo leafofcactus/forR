@@ -49,5 +49,45 @@ tail(trait_table_final)
 
 #write.csv(trait_table_final, "./data/trait_table_260102.csv", row.names = TRUE)
 
-trait_growthform <- traitdata %>%
-  filter(TraitName == "Dispersal syndrome")
+#종자 무게, SLA, LWC에 대한 정보를 모두 가진 종은 몇 종이나 될까?
+##seed mass
+trait_seedmass <- traitdata %>%
+  filter(TraitName == "Seed dry mass")
+
+dplyr::n_distinct(trait_seedmass$AccSpeciesName)
+
+seedmasslist <- unique(trait_seedmass$AccSpeciesName)
+
+##SLA
+trait_sla <- traitdata %>%
+  filter(TraitName %in% c("Leaf area per leaf dry mass (specific leaf area, SLA or 1/LMA): petiole included", "Leaf area per leaf dry mass (specific leaf area, SLA or 1/LMA): undefined if petiole is in- or excluded", "Leaf area per leaf dry mass (specific leaf area, SLA or 1/LMA): petiole excluded"))
+
+dplyr::n_distinct(trait_sla$AccSpeciesName)
+
+slalist <- unique(trait_sla$AccSpeciesName)
+
+##LWC
+trait_lwc <- traitdata %>%
+  filter(TraitName %in% c("Leaf dry mass per leaf fresh mass (leaf dry matter content, LDMC)", "Leaf water content per leaf dry mass (not saturated)"))
+
+dplyr::n_distinct(trait_lwc$AccSpeciesName)
+
+lwclist <- unique(trait_lwc$AccSpeciesName)
+
+str(seedmasslist)
+str(slalist)
+str(lwclist)
+
+##공통 종목록 뽑기
+common_species <- Reduce(intersect, list(seedmasslist, slalist, lwclist))
+length(common_species)
+
+all(common_species %in% seedmasslist)
+all(common_species %in% slalist)
+all(common_species %in% lwclist)
+
+commonlist <- traitdata %>%
+  filter(AccSpeciesName %in% common_species) %>%
+  distinct(AccSpeciesName, AccSpeciesID)
+
+#write.csv(commonlist, "./data/common_trait_list_260105.csv", row.names = TRUE)

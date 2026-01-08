@@ -1,0 +1,69 @@
+---
+title: "20260106_rare_climate"
+output: html_notebook
+---
+
+꼭 넣어야 할 형질정보에는 무엇이 있을까?
+
+**종자 무게**, 분산형, 생활형, **SLA, LWC**, (+키?) ← 이 중 분산형, 생활형은 따로 검색 가능.
+
+위 3개를 가진 종들부터 뽑아보자.
+
+```{r}
+library(rtry)
+
+traitdata <- rtry_import("./data/46171_29122025114036/46171.txt", separator = "\t",
+                         encoding = "Latin-1",
+                         quote = "",
+                         showOverview = TRUE
+)
+
+library(dplyr)
+
+##seed mass
+trait_seedmass <- traitdata %>%
+  filter(TraitName == "Seed dry mass")
+
+dplyr::n_distinct(trait_seedmass$AccSpeciesName)
+
+seedmasslist <- unique(trait_seedmass$AccSpeciesName)
+
+##SLA
+trait_sla <- traitdata %>%
+  filter(TraitName %in% c("Leaf area per leaf dry mass (specific leaf area, SLA or 1/LMA): petiole included", "Leaf area per leaf dry mass (specific leaf area, SLA or 1/LMA): undefined if petiole is in- or excluded", "Leaf area per leaf dry mass (specific leaf area, SLA or 1/LMA): petiole excluded"))
+
+dplyr::n_distinct(trait_sla$AccSpeciesName)
+
+slalist <- unique(trait_sla$AccSpeciesName)
+
+##LWC
+trait_lwc <- traitdata %>%
+  filter(TraitName %in% c("Leaf dry mass per leaf fresh mass (leaf dry matter content, LDMC)", "Leaf water content per leaf dry mass (not saturated)"))
+
+dplyr::n_distinct(trait_lwc$AccSpeciesName)
+
+lwclist <- unique(trait_lwc$AccSpeciesName)
+
+##공통 종목록 뽑기
+common_species <- Reduce(intersect, list(seedmasslist, slalist, lwclist))
+length(common_species)
+
+all(common_species %in% seedmasslist)
+all(common_species %in% slalist)
+all(common_species %in% lwclist)
+
+```
+
+종자 무게가 있는 분류군은 39분류군, SLA가 있는 분류군은 42분류군, LWC가 있는 분류군은 32분류군.
+3가지 공통인 분류군은 22분류군..
+
+국명으로 뭔지 확인해야겠다.
+
+```{r}
+commonlist <- traitdata %>%
+  filter(AccSpeciesName %in% common_species) %>%
+  distinct(AccSpeciesName, AccSpeciesID)
+```
+
+엑셀로 확인한 결과 목본 8분류군, 초본 14분류군
+가문비나무, 측백나무, 바위모시, 산작약, 죽절초, 나도범의귀, 남가새, 장백제비꽃, 피뿌리풀, 큰바늘꽃, 독미나리, 들쭉나무, 월귤, 빌레나무, 참기생꽃, 조름나물, 등포풀, 산분꽃나무, 대암사초, 애기사철란, 손바닥난초, 나도씨눈란
