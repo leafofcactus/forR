@@ -1,0 +1,414 @@
+---
+title: "20260113_rare_climate"
+output: html_notebook
+---
+
+멸종위기종 자료까지 넣고 분포가 어떤 차이가 있는지 확인해보자.
+
+
+```{r}
+#load occurrence data
+library(dplyr)
+library(purrr)
+
+specieslist <- read.csv("./data/분석대상종_250729.csv", header = TRUE)
+
+# 파일 경로와 구분 이름 정의
+file_info <- tibble(
+  source = c("nfi_5th", "nfi_4th", "nfi_3rd", "nfi_2nd"),
+  path = c(
+    "D:/data/전국자연환경조사/전국자연환경조사_5차_2019_2021_전국/식물상/전국자연환경조사_5차_식물상_2019_2021_전국.csv",
+    "D:/data/전국자연환경조사/전국자연환경조사_4차_2014_2018_전국/식물상/전국자연환경조사_4차_식물상_2014_2018_전국.csv",
+    "D:/data/전국자연환경조사/전국자연환경조사_3차_2006_2013_전국/식물상/전국자연환경조사_3차_식물상_2006_2013_전국.csv",
+    "D:/data/전국자연환경조사/전국자연환경조사_2차_1997_2005_전국/식물상/전국자연환경조사_2차_식물상_1997_2005_전국.csv"),
+  stringsAsFactors = FALSE
+)
+
+# 모든 파일 읽어서 하나의 데이터프레임으로 병합 (출처 정보도 함께)
+nfi_sub <- file_info %>%
+  mutate(data = map(path, ~{
+    read.csv(.x) %>%
+      mutate(across(everything(), as.character)) %>%
+      select(id, 한글보통명, 위도, 경도)
+  })) %>% 
+  tidyr::unnest(data)
+
+other_paths <- c(
+  bdplant = "D:/data/국립공원/백두대간정밀조사_2012_2022_전국/백두대간정밀조사_식물상_2015_2022_전국/백두대간정밀조사_식물상_2015_2022_전국_수정.csv",
+  bdveg   = "D:/data/국립공원/백두대간정밀조사_2012_2022_전국/백두대간정밀조사_식생_2019_2022_전국/백두대간정밀조사_식생_2019_2022_전국.csv",
+  tjplant = "D:/data/국립공원/특정지역정밀조사_2004_2022_전국/식물상/특정지역정밀조사_식물상_2009_2022_전국.csv",
+  tjveg   = "D:/data/국립공원/특정지역정밀조사_2004_2022_전국/식생/특정지역정밀조사_식생_2017_2022_전국.csv"
+)
+
+others_sub <- map_df(other_paths, ~{
+  read.csv(.x) %>%
+    mutate(across(everything(), as.character)) %>%
+    select(id, 한글보통명, 위도, 경도)
+})
+
+threatenedocc <- read.csv("./data/멸종위기 야생생물 통합정보(DB) ver.1_7236.csv", skip = 1, header = TRUE)
+threatenedocc <- threatenedocc %>%
+  mutate(
+    lon_dd = (경도.도. + 경도.분./60 + 경도.초./3600),
+    lat_dd = (위도.도. + 위도.분./60 + 위도.초./3600)
+  ) %>%
+  mutate(across(everything(), as.character)) %>%
+  select(id=X, 한글보통명=X.2, 위도=lat_dd, 경도=lon_dd)
+
+#자원관 국명을 수목원 국명으로 바꾸기: 이미 rawdata를 확인했음
+name_map <- tibble(
+  old_name = c("가시연", "가시오갈피나무", "갈매기란", "갯대추", "백서향나무", "비양나무", "솔잎난", "줄댕강나무"),
+  new_name = c("가시연꽃", "가시오갈피", "갈매기난초", "갯대추나무", "백서향", "바위모시", "솔잎란", "댕강나무")
+)
+
+# 병합
+combined_data <- bind_rows(nfi_sub, others_sub, threatenedocc) %>%
+  mutate(
+    위도 = as.numeric(위도),
+    경도 = as.numeric(경도)
+  ) %>%
+  select(X=id, 국명=한글보통명, decimalLatitude=위도, decimalLongitude=경도)%>%
+  left_join(name_map, by = c("국명" = "old_name")) %>%
+  mutate(국명 = coalesce(new_name, 국명)) %>% # new_name이 있으면 쓰고, 없으면 기존 국명 유지
+  select(-new_name) %>%
+  filter(국명 %in% specieslist$국명 | 국명 %in% specieslist$자원관) %>%
+  distinct(국명, decimalLatitude, decimalLongitude, .keep_all = TRUE)
+#4551
+
+unique(combined_data$국명)
+
+```
+
+생태원 멸종위기 자료를 넣자 출현기록이 1392에서 4551로 증가함.(아직 GBIF 데이터는 넣지도 않음)
+생태원 멸종위기 자료만으로도 219분류군 확보(국명을 수목원 국명으로 합칠 경우 215분류군으로 됨.)
+
+```{r}
+gbifocc <- read.csv("./data/occurrence_274_kr_250731_filtered.csv")
+names(specieslist)[6] <- "usageKey"
+
+gbifocc_name <- gbifocc %>%
+  left_join(specieslist %>% select(usageKey, 국명, 국가적색목록평가), by = "usageKey") %>%
+  select(X, 국명, decimalLatitude, decimalLongitude) %>%
+  distinct(국명, decimalLatitude, decimalLongitude, .keep_all = TRUE)
+# 4464->3488
+
+gbifwithcom <- rbind(combined_data, gbifocc_name) %>%
+  distinct(국명, decimalLatitude, decimalLongitude, .keep_all = TRUE)
+#8011
+
+unique(gbifwithcom$국명)
+table(gbifwithcom$국명)
+
+#filtering occurrence records excluding overseas
+library(terra)
+
+r <- rast("D:/GIS file/202505_산림경관보전특강/temp/terrestrial_250509.tif")
+
+gbif_vect <- vect(gbifwithcom, 
+                  geom = c("decimalLongitude", "decimalLatitude"), 
+                  crs = "+proj=longlat +datum=WGS84")
+
+# terra의 extract는 첫 번째 열에 ID를 반환하므로, 
+# 래스터 값이 있는 두 번째 열만 확인하여 NA가 아닌 행을 찾습니다.
+extracted_values <- extract(r, gbif_vect)
+
+# extracted_values의 2번째 열(래스터값)이 NA가 아닌 경우만 선택
+inside <- !is.na(extracted_values[, 2])
+gbifnie_filtered_land <- gbif_vect[inside, ]
+gbifnie_filtered_land_df <- as.data.frame(gbifnie_filtered_land, geom = "XY")
+
+#8011 -> 7940 (1종도 같이 사라짐)
+ioccurrence <- table(gbifnie_filtered_land_df$국명)
+
+#write.csv(ioccurrence, file = "./data/table259_260113.csv")
+#write.csv(gbifnie_filtered_land_df, file = "./data/occurrence259_260113.csv")
+
+
+```
+
+259분류군에 대해 볼 수 있게 되었다!
+
+하는 김에 코드들 좀 예쁘게 만들어보자.
+먼저 PCA 축별 분산 설명력 및 변수별 설명력 확인
+
+```{r}
+#PCA 확인하기####
+library(dplyr)
+library(tidyverse)
+
+clm_pca_result <- readRDS("pca_result_clm_251107.rds")
+
+#PCA 설명력 확인하기
+pc_var_df <- tidy(clm_pca_result$pca, matrix = "eigenvalues") %>%
+  mutate(PC = paste0("PC", PC)) %>%
+  select(PC, Explained = percent, Cumulative = cumulative)
+
+print(pc_var_df)
+#1축 설명력 47.2, 2축 설명력 19.1
+
+#변수 기여도(Loadings & Contribution) 정리
+pc_contrib_df <- clm_pca_result$pca$rotation %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Variable") %>%
+  # 1~3축만 선택하고 각 값을 제곱하여 기여분산 계산
+  mutate(across(starts_with("PC"), ~ (.x^2) / sum(.x^2))) %>%
+  select(Variable, PC1, PC2, PC3)
+
+print(pc_contrib_df)
+
+##PCA 변수별 설명력 시각화####
+library(factoextra)
+
+#png(filename = "./그림/PCA_importance_all_250929.png", width = 1600, height = 1200, res = 300)
+
+fviz_pca_var(
+  clm_pca_result$pca,
+  col.var = "contrib",  # 기여도 기반 색상
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+  repel = TRUE,          # 텍스트 겹침 방지
+  geom = c("arrow", "text"),  # 화살표와 텍스트 모두 출력
+  arrowsize = 1.2,            # 화살표 두께 (기본은 0.5)
+  labelsize = 4,              # 글씨 크기
+  fontface = "bold"           # 글씨 두께 (bold)
+)
+
+```
+
+clm_pca_result <- readRDS("pca_result_clm_251107.rds")
+
+rds를 저장할 때 
+
+> clm_pca_result$raster <- wrap(clm_var_filter) 
+> saveRDS(clm_pca_result, "pca_result_clm_251107.rds")
+
+이렇게 래스터 파일을 wrap한 다음에 RDS를 저장하면 나중에 
+
+clm_var_filter <- rast(clm_pca_result$raster)
+이렇게 하면 래스터 파일을 바로 불러올 수 있다. (꿀팁)
+
+기후공간 빈도 확인 코드도 제대로 되는지 확인해보자.
+```{r}
+#기후공간 빈도 확인####
+library(dplyr)
+library(ggplot2)
+library(RColorBrewer)
+
+clm_var_filter <- rast(clm_pca_result$raster)
+
+# 설정값 정의
+bins_count <- 50
+cell_area_km2 <- prod(res(clm_var_filter)) / 1e6
+
+# PCA 좌표 가져오기
+clm_pca_df <- as.data.frame(clm_pca_result$pca$x)
+
+
+# PCA 공간을 격자로 나눠 빈도 계산
+pca_bins <- clm_pca_df %>%
+  mutate(
+    PC1_bin = cut(PC1, breaks = bins_count, labels = FALSE),
+    PC2_bin = cut(PC2, breaks = bins_count, labels = FALSE)
+  ) %>%
+  group_by(PC1_bin, PC2_bin) %>%
+  summarise(cell_count = n(), .groups = "drop") %>%
+  mutate(
+    area = cell_count * cell_area_km2,
+    # 빈도(cell_count)를 기준으로 10등분 (quantile 사용)
+    # ntile(변수, 등분 수) 함수 사용
+    count_decile = factor(ntile(cell_count, 10)) 
+  )
+
+# 사용할 10가지 색상 벡터 생성
+# RColorBrewer Blues 9가지 색상 + 가장 진한 파랑 수동 추가
+custom_blues_10 <- c(brewer.pal(9, "Blues"), "#000033")
+
+# 시각화 (빈도 10등분, 범주형 색상 사용)
+ggplot(pca_bins, aes(x = PC1_bin, y = PC2_bin, fill = count_decile)) +
+  geom_tile() +
+  scale_fill_manual(
+    # 빈도수가 많은(10) 곳에 진한 색상이 오도록 순서를 역전시킵니다.
+    values = rev(custom_blues_10), 
+    labels = paste0(seq(10, 100, by = 10), "%"),
+    name = "빈도 분위수"
+  #  na.translate = FALSE # 결측치(빈 셀)는 표시하지 않음
+  ) +
+  coord_fixed() +
+  theme_minimal() +
+  theme(
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    panel.grid = element_blank() # 격자선 제거로 가독성 향상
+  ) +
+  labs(
+    title = "PCA 환경 공간 빈도 분포",
+    subtitle = paste0("격자 크기: ", bins_count, "x", bins_count),
+    x = "PC1", y = "PC2")
+
+```
+
+기후 공간 빈도도 더 깔끔하게 나왔다. 그런데 미분류가 나오는지는 확인해봐야 할듯.
+
+출현 자료 thinning 부터 하자.
+```{r}
+## 출현자료 thinning####
+library(terra)
+library(dplyr)
+
+rast_merged_5179 <- rast("./data/large_landcover_5179.tif")
+
+# 종 발생 데이터 로드
+occurrence <- read.csv("./data/threatened_include/occurrence259_260113.csv", header = TRUE)
+occurrence <- occurrence[,2:5]
+
+# 좌표 변환 및 셀 ID 추출
+occurrence_selected <- occurrence %>%
+  vect(geom = c("x", "y"), crs = "EPSG:4326") %>%
+  project("EPSG:5179")
+
+set.seed(42)
+
+clm_thinned_occ <- occurrence %>%
+  mutate(cell = cellFromXY(rast_merged_5179, crds(occurrence_selected))) %>%
+  # Spatial Thinning: 동일 셀 내 동일 종은 1개만 샘플링
+  group_by(국명, cell) %>%
+  slice_sample(n = 1) %>%
+  ungroup() %>%
+  # 결측치 제거 (래스터 범위 밖의 포인트가 있을 경우)
+  filter(!is.na(cell))
+#thinning 결과 7940 -> 5551
+
+#도심지 좌표 제외하기
+thinned_vect_5179 <- clm_thinned_occ %>%
+  vect(geom = c("x", "y"), crs = "EPSG:4326") %>%
+  project("EPSG:5179")
+
+
+# 환경 변수 추출
+thinned_with_env <- clm_thinned_occ %>%
+  bind_cols(
+    as.data.frame(crds(thinned_vect_5179)) %>% 
+      rename(X_5179 = x, Y_5179 = y),
+      terra::extract(clm_var_filter, thinned_vect_5179) %>% 
+      select(-ID)
+  )
+
+
+mask_check <- terra::extract(rast_merged_5179, thinned_vect_5179)
+
+thinned_outside_mask <- thinned_with_env %>%
+  mutate(mask_val = mask_check[[2]]) %>%
+  filter(is.na(mask_val) | mask_val != 1) %>%
+  select(-mask_val) # 임시 마스크 열 삭제
+
+# 결과 확인
+# 5551 -> 5387 
+unique(thinned_outside_mask$국명) # 251 taxa
+
+# 8. 결과 저장 (X_5179, Y_5179 포함)
+#write.csv(thinned_outside_mask, "./data/threatened_include/thinned_occur_clm_5179_260113.csv", row.names = FALSE)
+
+```
+
+251 분류군 대상 5387 출현 자료 사용 가능.
+생각해보니 분석 순서를 바꿔야 겠다. (R파일에는 반영함)
+
+NA로 분류된 출현좌표가 있는지 확인하기
+```{r}
+library(dplyr)
+library(tidyr)
+
+# 1. PCA 변환 적용 (predict 함수 활용)
+# scale과 %*% 연산을 직접 하는 대신 predict를 쓰면 center, scale, rotation이 자동 적용됩니다.
+clm_occ_pca <- predict(clm_pca_result$pca, newdata = thinned_outside_mask) %>%
+  as.data.frame()
+
+# 2. PCA 공간 Binning 및 분위수 매칭
+# 기존 pca_bins를 만들 때 사용한 binning 범위를 그대로 재사용하기 위해 
+# 속도가 빠르고 정확한 'findInterval' 또는 동일한 breaks 설정을 사용합니다.
+
+# pca_bins 생성 시 사용했던 bins_count(예: 50)를 참조합니다.
+clm_occ_pca_bins <- clm_occ_pca %>%
+  mutate(
+    # cut 함수에 기존 데이터의 범위를 넣어 동일한 bin 체계를 유지
+    PC1_bin = cut(PC1, breaks = seq(min(clm_pca_df$PC1), max(clm_pca_df$PC1), length.out = bins_count + 1), 
+                  include.lowest = TRUE, labels = FALSE),
+    PC2_bin = cut(PC2, breaks = seq(min(clm_pca_df$PC2), max(clm_pca_df$PC2), length.out = bins_count + 1), 
+                  include.lowest = TRUE, labels = FALSE)
+  ) %>%
+  # 3. 분위수 데이터 결합 (pca_bins가 labels = FALSE인 정수형 bin일 때 기준)
+  left_join(
+    pca_bins %>% select(PC1_bin, PC2_bin, count_decile),
+    by = c("PC1_bin", "PC2_bin")
+  )
+
+cat("\n[분위수별 출현지 개수 요약]\n")
+clm_occ_pca_bins %>%
+  count(count_decile) %>%
+  mutate(percent = n / sum(n) * 100) %>%
+  print()
+```
+
+흔한 기후에서 확실히 n 수가 많기는 함
+
+```{r}
+##기후 빈도 위에 시각화####
+library(dplyr)
+library(ggplot2)
+
+# 1. 시각화용 데이터 정리 (중심값 계산 로직 간소화)
+# bins_count와 min/max 값을 활용해 좌표를 직접 계산하면 파싱이 필요 없습니다.
+pc1_range <- range(clm_pca_df$PC1)
+pc2_range <- range(clm_pca_df$PC2)
+tile_width <- diff(pc1_range) / bins_count
+tile_height <- diff(pc2_range) / bins_count
+
+pca_plot_df <- pca_bins %>%
+  mutate(
+    # bin 번호를 실제 좌표값으로 변환
+    PC1_center = pc1_range[1] + (PC1_bin - 0.5) * tile_width,
+    PC2_center = pc2_range[1] + (PC2_bin - 0.5) * tile_height
+  )
+
+ggplot() +
+  # [배경] 기후 빈도 타일 (geom_tile은 x, y가 중심점일 때 가장 잘 작동합니다)
+  geom_tile(data = pca_plot_df, 
+            aes(x = PC1_center, y = PC2_center, fill = count_decile),
+            width = tile_width, height = tile_height) +
+  
+  # [오버레이] 출현 지점 (분류 여부에 따라 색상 차별화)
+  geom_point(data = clm_occ_pca_bins, 
+             aes(x = PC1, y = PC2, color = is.na(count_decile)), 
+             size = 1.0, alpha = 0.5) +
+  
+  # 색상 및 범례 설정
+  scale_fill_manual(
+    values = rev(custom_blues_10),
+    labels = paste0(seq(10, 100, 10), "%"),
+    name = "기후 빈도 분위",
+    guide = guide_legend(order = 1)
+  ) +
+  scale_color_manual(
+    values = c("FALSE" = "red", "TRUE" = "black"),
+    labels = c("FALSE" = "정상 분류", "TRUE" = "범위 외(NA)"),
+    name = "출현지 상태",
+    guide = guide_legend(order = 2)
+  ) +
+  
+  # 좌표계 및 테마
+  coord_fixed() +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    axis.title = element_text(face = "bold"),
+    legend.title = element_text(size = 9, face = "bold")
+  ) +
+  labs(
+    title = "PCA 환경 공간 내 종 출현 분포",
+    subtitle = "배경: 전체 환경 빈도 분위수 | 점: 실제 출현 지점",
+    x = "PC1",
+    y = "PC2"
+  )
+
+```
+
+예전에 NA로 분류되던 것들이 사라짐.... 코드를 예전으로 다시 되돌려보자... 내일
