@@ -46,7 +46,7 @@ others_sub <- map_df(other_paths, ~{
     select(id, 한글보통명, 위도, 경도)
 })
 
-threatenedocc <- read.csv("./data/멸종위기 야생생물 통합정보(DB) ver.1_7236.csv", skip = 1, header = TRUE)
+threatenedocc <- read.csv("./data/threatened_include/멸종위기 야생생물 통합정보(DB) ver.1_7236.csv", skip = 1, header = TRUE)
 threatenedocc <- threatenedocc %>%
   mutate(
     lon_dd = (경도.도. + 경도.분./60 + 경도.초./3600),
@@ -135,6 +135,7 @@ ioccurrence <- table(gbifnie_filtered_land_df$국명)
 #PCA 확인하기####
 library(dplyr)
 library(tidyverse)
+library(broom)
 
 clm_pca_result <- readRDS("pca_result_clm_251107.rds")
 
